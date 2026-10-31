@@ -1,1 +1,40 @@
-h
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "WiFi Presence",
+        "description": "Scans your WiFi network to see which devices are connected. Google WiFi uses 192.168.86.0/24 by default.",
+        "data": {
+          "subnet": "Network to scan",
+          "scan_interval": "Scan every (seconds)",
+          "consider_home": "Stay 'home' after last seen (seconds)"
+        }
+      }
+    },
+    "error": {
+      "invalid_subnet": "That isn't a valid network like 192.168.86.0/24"
+    },
+    "abort": {
+      "already_configured": "WiFi Presence is already set up"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "WiFi Presence devices",
+        "description": "Pick which devices to track. Don't see one? Connect it to WiFi, wait a minute, and reopen this. Or add its MAC below.",
+        "data": {
+          "tracked": "Devices to track",
+          "manual_macs": "Add by MAC (optional, comma separated)",
+          "subnet": "Network to scan",
+          "scan_interval": "Scan every (seconds)",
+          "consider_home": "Stay 'home' after last seen (seconds)"
+        }
+      }
+    },
+    "error": {
+      "invalid_subnet": "That isn't a valid network like 192.168.86.0/24",
+      "invalid_mac": "A MAC looks like aa:bb:cc:dd:ee:ff"
+    }
+  }
+}
