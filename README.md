@@ -1,110 +1,74 @@
-# Fan Auto Control
+<p align="center">
+  <img src="https://raw.githubusercontent.com/jonathangibson98/ha-wifi-presence/main/custom_components/wifi_presence/brand/logo.png" alt="WiFi Presence" width="420">
+</p>
 
-A lightweight Home Assistant custom integration that automatically runs a fan based on temperature, with timed **air circulation** at in-between temperatures and a **manual override that is simply the fan itself**.
+<p align="center">
+  <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=jonathangibson98&repository=ha-wifi-presence&category=integration">
+    <img src="https://my.home-assistant.io/badges/hacs_repository.svg" alt="Open in HACS">
+  </a>
+</p>
 
-No helpers, no `input_select`, no YAML automations. Set it up from the UI.
+# WiFi Presence
 
-## Features
+A Home Assistant integration that finds the devices on your WiFi and turns the ones you pick into `device_tracker` entities. A device is **home** when it's on your network and **not_home** when it's not.
 
-- **Over-temp mode:** fan runs continuously above your ON temperature.
-- **Hysteresis:** once on, the fan stays on until the temperature drops below your OFF temperature, so it doesn't flap around the threshold.
-- **Air circulation mode:** between the circulation temperature and the ON temperature, the fan runs for X minutes, rests for Y minutes, and repeats.
-- **Manual override = the fan:** turn the fan on or off yourself (dashboard, physical switch, voice assistant) and auto control backs off for a configurable time.
-- **Optional gates:**
-  - A heat sensor (`binary_sensor`) that must be on for circulation to run.
-  - An "it's hot out" toggle (`input_boolean` or `binary_sensor`) that must be on for the fan to run at all.
-- **Auto control switch** to pause the whole thing.
-- **Mode sensor** so you can see what it's doing at a glance.
-- Fully configurable from the UI, and editable later through the integration's options.
+Built for **Google WiFi / Nest WiFi**, which has no local API and no client list. It also works on any other router.
 
-## How it decides
+## How it works
 
-| Condition | Mode | Fan |
-|---|---|---|
-| "Hot out" toggle configured and off | `off` | Off |
-| Temp above **ON temp**, or already in `over_temp` and still above **OFF temp** | `over_temp` | On (continuous) |
-| Temp at or above **circulation temp** (and heat sensor on, if configured) | `air_circulation` | On X min / off Y min, repeating |
-| Anything else | `off` | Off |
-| Fan changed by someone/something else | `manual` | Left alone until override ends |
-| Auto control switch off | `disabled` | Left alone |
+Every scan, the integration sends a tiny packet to each address in your subnet, which makes the OS ask "who has this IP?" (ARP). Every device on WiFi has to answer that, even phones that ignore pings. It then reads the ARP table to see who answered. No router login, no cloud, no extra software.
 
-Example defaults (Fahrenheit): circulate from 72, run continuously above 76, shut off below 74. Circulation runs 5 minutes on, 15 minutes off.
+## Requirements
 
-> Thresholds are plain numbers in whatever unit your temperature sensor reports.
+- Home Assistant 2024.12 or newer (2026.3+ for the icons and logos to show)
+- Home Assistant must be on the same network as the devices (HAOS and Container with host networking both work)
 
-## Installation
-
-### HACS (custom repository)
+## Install with HACS
 
 1. HACS → three-dot menu → **Custom repositories**.
-2. Add `https://github.com/YOUR_USERNAME/YOUR_REPO` with category **Integration**.
-3. Install **Fan Auto Control** and restart Home Assistant.
+2. Add `https://github.com/jonathangibson98/ha-wifi-presence`, category **Integration**.
+3. Find **WiFi Presence** in HACS, download it, and **restart Home Assistant**.
+4. Settings → Devices & Services → **Add Integration** → **WiFi Presence**.
 
-### Manual
+### Manual install
 
-1. Copy the `custom_components/fan_auto` folder into your Home Assistant config directory:
-
-   ```
-   /config/custom_components/fan_auto/
-   ```
-
-2. Restart Home Assistant.
+Copy `custom_components/wifi_presence` into your `config/custom_components/` folder and restart.
 
 ## Setup
 
-1. **Settings → Devices & services → Add integration → Fan Auto Control**.
-2. Fill in the form:
+1. Keep the defaults if you use Google WiFi (`192.168.86.0/24`, scan every 30 seconds). Change the subnet if your router uses a different one.
+2. Click **Configure** on the integration.
+3. Tick the devices you want to track. Each one shows its name, IP and MAC. Not listed? Connect it to WiFi, wait a minute, and reopen Configure. You can also type its MAC address.
+4. Submit. Your `device_tracker` entities appear right away. Rename them in the UI.
 
-| Option | Required | Default | Description |
-|---|---|---|---|
-| Temperature sensor | Yes |  | Any `sensor` reporting a number |
-| Fan | Yes |  | The real fan entity (`fan.*` or `switch.*`) |
-| Heat sensor | No |  | `binary_sensor` that must be on for circulation |
-| "It's hot out" toggle | No |  | `input_boolean` or `binary_sensor` that must be on for any fan activity |
-| Fan ON above | Yes | 76 | Continuous run above this |
-| Fan OFF below | Yes | 74 | Must be lower than ON temp |
-| Start circulation at or above | Yes | 72 | Circulation begins here |
-| Circulation minutes ON | Yes | 5 | Run time per cycle |
-| Circulation minutes OFF | Yes | 15 | Rest time between runs |
-| Manual override minutes | Yes | 60 | `0` = stay in manual until the Auto control switch is toggled off and on |
+## Options
 
-To change anything later: Devices & services → Fan Auto Control → **Configure**. The integration reloads automatically when you save.
+| Option | What it does | Default |
+|---|---|---|
+| Network to scan | Subnet in CIDR form | `192.168.86.0/24` |
+| Scan every | Seconds between scans | `30` |
+| Stay home after last seen | Seconds a device stays "home" after it stops answering | `180` |
+| Add by MAC | Track a device that isn't online right now | empty |
 
-## Entities
+## Phones: turn off Private Wi-Fi Address
 
-| Entity | Description |
-|---|---|
-| `sensor.<name>_mode` | `off`, `over_temp`, `air_circulation`, `manual`, or `disabled`. Has a `cycle_phase` attribute (`running` or `resting`) during circulation |
-| `switch.<name>_auto_control` | Turn auto control on or off. State is remembered across restarts |
+iPhones and many Androids use a random MAC per network, and it can change. A changed MAC looks like a new device. For your home WiFi:
 
-## Manual override
+- **iPhone:** Settings → Wi-Fi → (i) next to your network → turn **Private Wi-Fi Address** off.
+- **Android:** Wi-Fi settings → your network → Privacy → **Use device MAC**.
 
-Auto control watches the fan. If the fan changes state and the change didn't come from this integration, it's treated as a manual action:
+## Tips and limits
 
-- Auto control stops touching the fan.
-- The mode sensor shows `manual`.
-- After the override time, auto control resumes and puts the fan where it should be.
-
-Changes the fan reports back within a few seconds of a command from this integration are ignored, so a slow device echoing the command won't trigger a false override.
-
-To end an override early, toggle **Auto control** off, then on.
-
-## Replacing an older automation setup
-
-If you previously used an `input_select` fan mode, a manual override `input_boolean`, and a pair of automations, this integration replaces all of it. Disable or delete the old automations so they don't fight the integration.
+- Phones in deep sleep can miss a scan. If a device flaps, raise **Stay home after last seen**.
+- In Google Home, reserve an IP for each tracked device to keep the list tidy.
+- Only devices in the scanned subnet are seen. Guest and IoT networks are separate subnets.
+- This shows if a device is on your WiFi, not where it is. Use the Companion app for GPS.
 
 ## Troubleshooting
 
-- **Fan never runs:** if you set an "it's hot out" toggle, it must be on. Leave it blank if nothing in your setup turns it on.
-- **Circulation never starts:** if you set a heat sensor, it must be `on`, and the temperature must be at or above the circulation temp.
-- **Integration doesn't show up:** confirm `manifest.json` is at `/config/custom_components/fan_auto/manifest.json`, then restart Home Assistant.
-- **Setup error:** check **Settings → System → Logs** and open an issue with the log lines.
-- **Fan keeps dropping into manual:** some devices report state changes as brand-new events with no link to the command. Try raising the manual override time, or open an issue with the device type.
-
-## Notes
-
-- If the temperature sensor is `unknown`, `unavailable`, or non-numeric, the integration does nothing and leaves the fan where it is.
-- Stopping or removing the integration does not change the fan's current state.
+- **No devices listed:** check the subnet, then check the log for `wifi_presence`.
+- **Everything shows away:** Home Assistant may be in an isolated container without host networking.
+- **Icons missing:** needs Home Assistant 2026.3+. Restart and hard-refresh the browser.
 
 ## License
 
