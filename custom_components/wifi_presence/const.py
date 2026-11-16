@@ -10,4 +10,4 @@ CONF_MANUAL_MACS = "manual_macs"
 
 DEFAULT_SUBNET = "192.168.86.0/24"  # Google WiFi default
 DEFAULT_SCAN_INTERVAL = 30
-DEFAULT_CONSIDER_HOME = 180
+DEFAULT_CONSIDER_HOME = 600  # iPhones can go quiet for several minutes

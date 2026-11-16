@@ -33,6 +33,12 @@ class WifiPresenceDevice(CoordinatorEntity[WifiScanCoordinator], ScannerEntity):
         self._attr_unique_id = f"{DOMAIN}_{mac}"
 
     @property
+    def available(self) -> bool:
+        # A failed scan shouldn't make the tracker "unavailable" (that breaks
+        # person entities). Home/away is decided by last_seen instead.
+        return True
+
+    @property
     def _device(self) -> dict | None:
         return self.coordinator.devices.get(self._mac)
 
@@ -63,4 +69,11 @@ class WifiPresenceDevice(CoordinatorEntity[WifiScanCoordinator], ScannerEntity):
     @property
     def hostname(self) -> str | None:
         dev = self._device
-        return dev.get("hostname") if dev else None
+        return (dev.get("hostname") or None) if dev else None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        dev = self._device
+        if not dev:
+            return {}
+        return {"last_seen": dev["last_seen"].isoformat()}

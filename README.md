@@ -18,6 +18,8 @@ Built for **Google WiFi / Nest WiFi**, which has no local API and no client list
 
 Every scan, the integration sends a tiny packet to each address in your subnet, which makes the OS ask "who has this IP?" (ARP). Every device on WiFi has to answer that, even phones that ignore pings. It then reads the ARP table to see who answered. No router login, no cloud, no extra software.
 
+Devices you track get extra attention: they're poked on ports that wake sleeping phones (mDNS and Apple's 62078), and if they still don't answer they get up to 3 more tries in the same scan. Last-seen times survive restarts.
+
 ## Requirements
 
 - Home Assistant 2024.12 or newer (2026.3+ for the icons and logos to show)
@@ -47,7 +49,7 @@ Copy `custom_components/wifi_presence` into your `config/custom_components/` fol
 |---|---|---|
 | Network to scan | Subnet in CIDR form | `192.168.86.0/24` |
 | Scan every | Seconds between scans | `30` |
-| Stay home after last seen | Seconds a device stays "home" after it stops answering | `180` |
+| Stay home after last seen | Seconds a device stays "home" after it stops answering | `600` |
 | Add by MAC | Track a device that isn't online right now | empty |
 
 ## Phones: turn off Private Wi-Fi Address
@@ -59,7 +61,9 @@ iPhones and many Androids use a random MAC per network, and it can change. A cha
 
 ## Tips and limits
 
-- Phones in deep sleep can miss a scan. If a device flaps, raise **Stay home after last seen**.
+- Phones in deep sleep can still miss scans. If a device flaps, raise **Stay home after last seen** (600–900 works well for iPhones).
+- iPhone: set **Private Wi-Fi Address** to **Off**, not "Fixed" or "Rotating". Rotating changes the MAC and the tracker loses the phone.
+- To see misses, turn on debug logging for `custom_components.wifi_presence`.
 - In Google Home, reserve an IP for each tracked device to keep the list tidy.
 - Only devices in the scanned subnet are seen. Guest and IoT networks are separate subnets.
 - This shows if a device is on your WiFi, not where it is. Use the Companion app for GPS.
