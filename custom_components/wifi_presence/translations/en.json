@@ -21,6 +21,14 @@
   "options": {
     "step": {
       "init": {
+        "title": "WiFi Presence",
+        "description": "What do you want to change?",
+        "menu_options": {
+          "settings": "Devices and scan settings",
+          "link": "Add Bluetooth or other signals to a device"
+        }
+      },
+      "settings": {
         "title": "WiFi Presence devices",
         "description": "Pick which devices to track. Don't see one? Connect it to WiFi, wait a minute, and reopen this. Or add its MAC below.",
         "data": {
@@ -30,11 +38,29 @@
           "scan_interval": "Scan every (seconds)",
           "consider_home": "Stay 'home' after last seen (seconds)"
         }
+      },
+      "link": {
+        "title": "Pick a device",
+        "description": "Choose the tracked device you want to add Bluetooth or other signals to.",
+        "data": {
+          "device": "Device"
+        }
+      },
+      "link_details": {
+        "title": "Extra signals",
+        "description": "{device}\n\nThe device counts as home if ANY signal sees it. Leave a box empty to skip it.",
+        "data": {
+          "bluetooth": "Bluetooth address (fixed address, like a watch or tag)",
+          "irk": "Bluetooth IRK (for phones that rotate their address)",
+          "entities": "Other trackers or sensors (like the Companion app tracker)"
+        }
       }
     },
     "error": {
       "invalid_subnet": "That isn't a valid network like 192.168.86.0/24",
-      "invalid_mac": "A MAC looks like aa:bb:cc:dd:ee:ff"
+      "invalid_mac": "A MAC looks like aa:bb:cc:dd:ee:ff",
+      "invalid_bluetooth": "A Bluetooth address looks like AA:BB:CC:DD:EE:FF",
+      "invalid_irk": "An IRK is 32 hex characters, or the base64 form that ends in ="
     }
   }
 }

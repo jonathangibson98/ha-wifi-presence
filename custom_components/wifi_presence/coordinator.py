@@ -1,4 +1,4 @@
-"""Scans the local network and tracks which devices are present."""
+"""Scans the network and combines WiFi, Bluetooth and linked entities per device."""
 from __future__ import annotations
 
 import asyncio
@@ -9,26 +9,43 @@ import selectors
 import socket
 import time
 from datetime import timedelta
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.const import STATE_HOME, STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    BLE_PUSH_THROTTLE,
+    CONF_BLUETOOTH,
+    CONF_CONSIDER_HOME,
+    CONF_ENTITIES,
+    CONF_IRK,
+    CONF_LINKS,
     CONF_SCAN_INTERVAL,
     CONF_SUBNET,
     CONF_TRACKED,
+    DEFAULT_CONSIDER_HOME,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_SUBNET,
     DOMAIN,
+    FAST_AWAY_SECONDS,
+    SOURCE_BLUETOOTH,
+    SOURCE_ENTITY,
+    SOURCE_WIFI,
 )
+from .helpers import is_resolvable_private, normalize_ble_address, parse_irk
 
 _LOGGER = logging.getLogger(__name__)
 ARP_FILE = "/proc/net/arp"
 STORAGE_VERSION = 1
 SAVE_DELAY = 60  # seconds; batches disk writes instead of writing every scan
+RPA_CACHE_MAX = 4096
 
 # Timing for one scan. The kernel gives up on an ARP lookup after ~3 tries
 # 1 second apart, so each wait has to be a bit longer than that.
@@ -48,7 +65,13 @@ _ALIVE_ERRNOS = {0, errno.ECONNREFUSED, errno.EISCONN}
 
 
 class WifiScanCoordinator(DataUpdateCoordinator[dict]):
-    """Sweep the subnet, retry the devices we care about, then read the ARP table."""
+    """Sweep the subnet, listen for Bluetooth, watch linked entities, combine them.
+
+    A device is home when ANY signal has seen it recently:
+      - wifi:      answered the network scan within "stay home" seconds
+      - bluetooth: its Bluetooth advert was heard within "stay home" seconds
+      - entity:    a linked entity (Companion app tracker, etc.) says home right now
+    """
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         interval = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
@@ -63,11 +86,232 @@ class WifiScanCoordinator(DataUpdateCoordinator[dict]):
         self._network = ipaddress.ip_network(subnet, strict=False)
         self._hosts = [str(ip) for ip in self._network.hosts()]
         self._tracked: set[str] = {m.lower() for m in entry.options.get(CONF_TRACKED, [])}
-        # mac -> {"ip": str, "hostname": str | None, "last_seen": datetime}
+        self._consider_home: int = entry.options.get(CONF_CONSIDER_HOME, DEFAULT_CONSIDER_HOME)
+
+        # mac -> {"ip": str | None, "hostname": str | None,
+        #         "seen": {"wifi": datetime, "bluetooth": datetime}}
         self.devices: dict[str, dict] = {}
         self._store: Store[dict] = Store(
             hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}.devices"
         )
+
+        # Extra signals, read from the options.
+        self._ble_static: dict[str, str] = {}  # BLE address -> tracked mac
+        self._ble_irks: dict[str, bytes] = {}  # tracked mac -> IRK bytes
+        self._ble_ciphers: list[tuple[str, Any]] = []
+        self._resolve_fn: Any = None
+        self._rpa_cache: dict[str, str | None] = {}
+        self._link_entities: dict[str, list[str]] = {}
+        self._last_push: dict[str, Any] = {}
+        self._unsubs: list[Any] = []
+        self._load_links(hass, entry)
+
+    def _load_links(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        registry = er.async_get(hass)
+        for raw_mac, link in (entry.options.get(CONF_LINKS) or {}).items():
+            mac = raw_mac.lower()
+            if mac not in self._tracked:
+                continue
+            address = normalize_ble_address(link.get(CONF_BLUETOOTH) or "")
+            if address:
+                self._ble_static[address] = mac
+            irk = parse_irk(link.get(CONF_IRK) or "")
+            if irk:
+                self._ble_irks[mac] = irk
+            entities = []
+            for entity_id in link.get(CONF_ENTITIES) or []:
+                reg = registry.async_get(entity_id)
+                # Never link our own trackers back into ourselves.
+                if reg is not None and reg.platform == DOMAIN:
+                    continue
+                entities.append(entity_id)
+            if entities:
+                self._link_entities[mac] = entities
+
+    # ------------------------------------------------------------------ lifecycle
+
+    @callback
+    def async_start(self) -> None:
+        """Start listening for Bluetooth adverts and linked entity changes."""
+        self._start_entity_tracking()
+        self._start_bluetooth()
+
+    @callback
+    def async_stop(self) -> None:
+        for unsub in self._unsubs:
+            unsub()
+        self._unsubs.clear()
+
+    def _start_entity_tracking(self) -> None:
+        entity_ids = sorted({e for ids in self._link_entities.values() for e in ids})
+        if not entity_ids:
+            return
+        self._unsubs.append(
+            async_track_state_change_event(
+                self.hass, entity_ids, self._async_linked_entity_changed
+            )
+        )
+
+    @callback
+    def _async_linked_entity_changed(self, event: Event) -> None:
+        self.async_update_listeners()
+
+    def _start_bluetooth(self) -> None:
+        if not self._ble_static and not self._ble_irks:
+            return
+        if "bluetooth" not in self.hass.config.components:
+            _LOGGER.warning(
+                "A device has a Bluetooth link but the Bluetooth integration isn't "
+                "set up, so Bluetooth is skipped"
+            )
+            return
+        try:
+            from homeassistant.components import bluetooth
+            from homeassistant.components.bluetooth import (
+                BluetoothCallbackMatcher,
+                BluetoothScanningMode,
+            )
+        except ImportError:
+            _LOGGER.warning("Bluetooth isn't available, so Bluetooth is skipped")
+            return
+
+        if self._ble_irks:
+            try:
+                from bluetooth_data_tools import (
+                    get_cipher_for_irk,
+                    resolve_private_address,
+                )
+            except ImportError:
+                _LOGGER.warning("IRK matching isn't available, so IRKs are skipped")
+            else:
+                self._resolve_fn = resolve_private_address
+                self._ble_ciphers = [
+                    (mac, get_cipher_for_irk(irk)) for mac, irk in self._ble_irks.items()
+                ]
+
+        try:
+            if self._ble_ciphers:
+                # Private addresses change, so we have to look at every advert.
+                matchers = [BluetoothCallbackMatcher(connectable=False)]
+            else:
+                matchers = [
+                    BluetoothCallbackMatcher(address=address, connectable=False)
+                    for address in self._ble_static
+                ]
+            for matcher in matchers:
+                self._unsubs.append(
+                    bluetooth.async_register_callback(
+                        self.hass,
+                        self._async_ble_advert,
+                        matcher,
+                        BluetoothScanningMode.PASSIVE,
+                    )
+                )
+            # Pick up devices Bluetooth already heard before we started.
+            now = time.monotonic()
+            for info in bluetooth.async_discovered_service_info(self.hass, False):
+                mac = self._match_ble(info.address)
+                if mac is None:
+                    continue
+                age = max(0.0, now - info.time)
+                if age <= self._consider_home:
+                    self._record_ble(mac, age, notify=False)
+        except Exception:  # noqa: BLE001 - Bluetooth trouble must never break WiFi
+            _LOGGER.exception("Couldn't start Bluetooth tracking, using WiFi only")
+
+    # ------------------------------------------------------------------ bluetooth
+
+    def _match_ble(self, address: str) -> str | None:
+        """Which tracked device (if any) does this Bluetooth address belong to."""
+        mac = self._ble_static.get(address)
+        if mac is not None:
+            return mac
+        if not self._ble_ciphers or self._resolve_fn is None:
+            return None
+        if address in self._rpa_cache:
+            return self._rpa_cache[address]
+        result = None
+        if is_resolvable_private(address):
+            for tracked_mac, cipher in self._ble_ciphers:
+                if self._resolve_fn(cipher, address):
+                    result = tracked_mac
+                    break
+        if len(self._rpa_cache) >= RPA_CACHE_MAX:
+            self._rpa_cache.clear()
+        self._rpa_cache[address] = result
+        return result
+
+    @callback
+    def _async_ble_advert(self, service_info: Any, change: Any) -> None:
+        mac = self._match_ble(service_info.address)
+        if mac is not None:
+            self._record_ble(mac)
+
+    @callback
+    def _record_ble(self, mac: str, age: float = 0.0, notify: bool = True) -> None:
+        now = dt_util.utcnow()
+        seen_at = now - timedelta(seconds=age)
+        was_home = self.status(mac)["connected"]
+        dev = self.devices.setdefault(mac, {"ip": None, "hostname": None, "seen": {}})
+        previous = dev["seen"].get(SOURCE_BLUETOOTH)
+        if previous is None or seen_at > previous:
+            dev["seen"][SOURCE_BLUETOOTH] = seen_at
+        if not notify:
+            return
+        last_push = self._last_push.get(mac)
+        if (
+            not was_home
+            or last_push is None
+            or (now - last_push).total_seconds() >= BLE_PUSH_THROTTLE
+        ):
+            self._last_push[mac] = now
+            # Not async_set_updated_data: that would restart the scan timer on
+            # every advert and the WiFi scan would never run.
+            self.async_update_listeners()
+
+    # ------------------------------------------------------------ combined state
+
+    def _entity_votes(self, mac: str) -> tuple[bool, bool]:
+        """(any linked entity says home, any linked entity clearly says away)."""
+        home = away = False
+        for entity_id in self._link_entities.get(mac, []):
+            state = self.hass.states.get(entity_id)
+            if state is None or state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE):
+                continue
+            if state.state in (STATE_HOME, STATE_ON):
+                home = True
+            else:
+                away = True
+        return home, away
+
+    def status(self, mac: str) -> dict:
+        """Combine every signal into one answer for a tracked device.
+
+        Returns {"connected": bool, "sources": [str], "last_seen": datetime | None}.
+        Home if ANY signal is fresh. Away only when ALL of them have gone quiet.
+        """
+        window = self._consider_home
+        entity_home, entity_away = self._entity_votes(mac)
+        if entity_away and not entity_home:
+            # The phone itself says it left, so we can stop waiting sooner.
+            window = min(window, FAST_AWAY_SECONDS)
+
+        now = dt_util.utcnow()
+        sources: list[str] = []
+        last_seen = None
+        dev = self.devices.get(mac)
+        for source, seen_at in (dev["seen"] if dev else {}).items():
+            if last_seen is None or seen_at > last_seen:
+                last_seen = seen_at
+            if (now - seen_at).total_seconds() <= window:
+                sources.append(source)
+        if entity_home:
+            sources.append(SOURCE_ENTITY)
+        return {
+            "connected": bool(sources),
+            "sources": sorted(sources),
+            "last_seen": last_seen,
+        }
 
     # ------------------------------------------------------------------ storage
 
@@ -81,13 +325,21 @@ class WifiScanCoordinator(DataUpdateCoordinator[dict]):
         for mac, saved in data.get("devices", {}).items():
             if mac not in self._tracked:
                 continue
-            last_seen = dt_util.parse_datetime(saved.get("last_seen") or "")
-            if last_seen is None:
+            seen: dict = {}
+            for source, value in (saved.get("seen") or {}).items():
+                parsed = dt_util.parse_datetime(value or "")
+                if parsed is not None:
+                    seen[source] = parsed
+            # Older versions saved a single last_seen, which was always WiFi.
+            legacy = dt_util.parse_datetime(saved.get("last_seen") or "")
+            if legacy is not None and SOURCE_WIFI not in seen:
+                seen[SOURCE_WIFI] = legacy
+            if not seen:
                 continue
             self.devices[mac] = {
                 "ip": saved.get("ip"),
                 "hostname": saved.get("hostname"),
-                "last_seen": last_seen,
+                "seen": seen,
             }
 
     def _data_to_save(self) -> dict:
@@ -96,10 +348,10 @@ class WifiScanCoordinator(DataUpdateCoordinator[dict]):
                 mac: {
                     "ip": dev.get("ip"),
                     "hostname": dev.get("hostname"),
-                    "last_seen": dev["last_seen"].isoformat(),
+                    "seen": {s: ts.isoformat() for s, ts in dev["seen"].items()},
                 }
                 for mac, dev in self.devices.items()
-                if mac in self._tracked
+                if mac in self._tracked and dev.get("seen")
             }
         }
 
@@ -250,15 +502,24 @@ class WifiScanCoordinator(DataUpdateCoordinator[dict]):
         for mac, ip in found.items():
             dev = self.devices.get(mac)
             if dev is None:
-                dev = self.devices[mac] = {"ip": ip, "hostname": None, "last_seen": now}
+                dev = self.devices[mac] = {"ip": ip, "hostname": None, "seen": {}}
             if dev.get("hostname") is None:
                 new_macs.append(mac)
             dev["ip"] = ip
-            dev["last_seen"] = now
+            dev["seen"][SOURCE_WIFI] = now
 
-        missed = [m for m in self._tracked if m not in found]
-        if missed:
-            _LOGGER.debug("Tracked devices that didn't answer this scan: %s", missed)
+        for mac in self._tracked:
+            if mac in found:
+                continue
+            state = self.status(mac)
+            if state["connected"]:
+                _LOGGER.debug(
+                    "%s didn't answer the WiFi scan but is still home via %s",
+                    mac,
+                    state["sources"],
+                )
+            else:
+                _LOGGER.debug("%s didn't answer the WiFi scan and is away", mac)
 
         if new_macs:
             names = await asyncio.gather(

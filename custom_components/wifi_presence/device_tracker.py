@@ -6,9 +6,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.util import dt as dt_util
 
-from .const import CONF_CONSIDER_HOME, CONF_TRACKED, DEFAULT_CONSIDER_HOME, DOMAIN
+from .const import CONF_TRACKED, DOMAIN, SOURCE_BLUETOOTH, SOURCE_WIFI
 from .coordinator import WifiScanCoordinator
 
 
@@ -16,26 +15,32 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     coordinator: WifiScanCoordinator = entry.runtime_data
-    consider_home = entry.options.get(CONF_CONSIDER_HOME, DEFAULT_CONSIDER_HOME)
     async_add_entities(
-        WifiPresenceDevice(coordinator, mac, consider_home)
-        for mac in entry.options.get(CONF_TRACKED, [])
+        WifiPresenceDevice(coordinator, mac) for mac in entry.options.get(CONF_TRACKED, [])
     )
 
 
 class WifiPresenceDevice(CoordinatorEntity[WifiScanCoordinator], ScannerEntity):
-    """One tracked device (home when it's on the WiFi, not_home when it's not)."""
+    """One tracked device.
 
-    def __init__(self, coordinator: WifiScanCoordinator, mac: str, consider_home: int) -> None:
+    Home when ANY signal has seen it recently (WiFi, Bluetooth, or a linked
+    entity). Not home only when all of them have gone quiet.
+    """
+
+    # Changes on every scan, so keep them out of the database.
+    _unrecorded_attributes = frozenset(
+        {"last_seen", "wifi_last_seen", "bluetooth_last_seen"}
+    )
+
+    def __init__(self, coordinator: WifiScanCoordinator, mac: str) -> None:
         super().__init__(coordinator)
         self._mac = mac
-        self._consider_home = consider_home
         self._attr_unique_id = f"{DOMAIN}_{mac}"
 
     @property
     def available(self) -> bool:
         # A failed scan shouldn't make the tracker "unavailable" (that breaks
-        # person entities). Home/away is decided by last_seen instead.
+        # person entities). Home/away is decided by the signals instead.
         return True
 
     @property
@@ -51,11 +56,7 @@ class WifiPresenceDevice(CoordinatorEntity[WifiScanCoordinator], ScannerEntity):
 
     @property
     def is_connected(self) -> bool:
-        dev = self._device
-        if not dev:
-            return False
-        age = (dt_util.utcnow() - dev["last_seen"]).total_seconds()
-        return age <= self._consider_home
+        return self.coordinator.status(self._mac)["connected"]
 
     @property
     def mac_address(self) -> str:
@@ -64,7 +65,7 @@ class WifiPresenceDevice(CoordinatorEntity[WifiScanCoordinator], ScannerEntity):
     @property
     def ip_address(self) -> str | None:
         dev = self._device
-        return dev["ip"] if dev else None
+        return dev.get("ip") if dev else None
 
     @property
     def hostname(self) -> str | None:
@@ -73,7 +74,14 @@ class WifiPresenceDevice(CoordinatorEntity[WifiScanCoordinator], ScannerEntity):
 
     @property
     def extra_state_attributes(self) -> dict:
+        status = self.coordinator.status(self._mac)
+        attrs: dict = {"connected_via": status["sources"]}
+        if status["last_seen"] is not None:
+            attrs["last_seen"] = status["last_seen"].isoformat()
         dev = self._device
-        if not dev:
-            return {}
-        return {"last_seen": dev["last_seen"].isoformat()}
+        if dev:
+            for source in (SOURCE_WIFI, SOURCE_BLUETOOTH):
+                seen_at = dev["seen"].get(source)
+                if seen_at is not None:
+                    attrs[f"{source}_last_seen"] = seen_at.isoformat()
+        return attrs

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.0
+- **Bluetooth.** Each tracked device can now be linked to a Bluetooth address (watches, tags, anything with a fixed address) or an IRK (phones that rotate their Bluetooth address). Works with the Bluetooth adapter on your Home Assistant machine and with ESPHome or Shelly Bluetooth proxies.
+- **Other signals.** Each tracked device can also be linked to other trackers or binary sensors, like the Companion app's `device_tracker`. If one of them says home, the device is home.
+- **One combined answer.** A device is home when ANY signal has seen it recently, and away only when all of them have gone quiet. Phones that sleep through a WiFi scan stay home if Bluetooth or the Companion app still sees them.
+- **Faster, still safe, away.** If a linked tracker clearly says the device left and nothing else has seen it, it goes away after 3 minutes instead of the full "stay home" time.
+- **Instant home.** Bluetooth adverts and linked entity changes update the tracker right away instead of waiting for the next scan.
+- New attributes: `connected_via` (which signals say home), `wifi_last_seen` and `bluetooth_last_seen`. The last-seen attributes are kept out of the recorder database.
+- Options now open to a menu: devices and scan settings, or add extra signals to a device.
+- Saved last-seen data is now stored per signal. Data saved by 1.1.0 is still read.
+
 ## 1.1.0
 - **Way fewer false "away" flips.** Tracked devices that don't answer the first sweep now get up to 3 more tries in the same scan.
 - Tracked devices are also poked directly on ports that wake sleeping phones (mDNS 5353 and Apple's 62078), not just one generic packet.
