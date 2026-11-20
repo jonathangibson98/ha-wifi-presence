@@ -30,6 +30,34 @@ def ble_address(key: str) -> str:
     return key[len(BLE_KEY_PREFIX):].upper()
 
 
+def is_random_mac(mac: str) -> bool:
+    """True for a WiFi 'private' (randomized) MAC: phones make these up per network."""
+    try:
+        return bool(int(mac[1], 16) & 0x2)
+    except (ValueError, IndexError):
+        return False
+
+
+def bluetooth_manufacturers(hass) -> dict[str, str]:
+    """{ADDRESS: manufacturer} for Bluetooth devices heard right now, to help tell them apart.
+
+    Empty when Bluetooth isn't set up or doesn't say.
+    """
+    if "bluetooth" not in hass.config.components:
+        return {}
+    try:
+        from homeassistant.components import bluetooth
+
+        out = {}
+        for info in bluetooth.async_discovered_service_info(hass, False):
+            maker = getattr(info, "manufacturer", None)
+            if maker:
+                out[info.address.upper()] = str(maker)
+        return out
+    except Exception:  # noqa: BLE001 - this is only a hint
+        return {}
+
+
 def parse_irk(raw: str) -> bytes | None:
     """Turn an IRK into 16 bytes. Same formats as HA's Private BLE Device.
 

@@ -7,6 +7,7 @@ import re
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigFlow, OptionsFlow
+from homeassistant.const import CONF_NAME
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import selector
@@ -19,6 +20,7 @@ from .const import (
     CONF_LINKS,
     CONF_MANUAL_BLE,
     CONF_MANUAL_MACS,
+    CONF_NAMES,
     CONF_SCAN_INTERVAL,
     CONF_SUBNET,
     CONF_TRACKED,
@@ -30,7 +32,9 @@ from .const import (
 from .helpers import (
     ble_address,
     ble_key,
+    bluetooth_manufacturers,
     is_ble_key,
+    is_random_mac,
     normalize_ble_address,
     parse_irk,
 )
@@ -55,7 +59,7 @@ class WifiPresenceConfigFlow(ConfigFlow, domain=DOMAIN):
                 return self.async_create_entry(
                     title="WiFi Presence",
                     data={},
-                    options={**user_input, CONF_TRACKED: [], CONF_LINKS: {}},
+                    options={**user_input, CONF_TRACKED: [], CONF_LINKS: {}, CONF_NAMES: {}},
                 )
 
         schema = vol.Schema(
@@ -80,41 +84,72 @@ class WifiPresenceConfigFlow(ConfigFlow, domain=DOMAIN):
 class WifiPresenceOptionsFlow(OptionsFlow):
     def __init__(self) -> None:
         self._link_key: str | None = None
+        self._name_key: str | None = None
 
     @property
     def _coordinator(self):
         return getattr(self.config_entry, "runtime_data", None)
 
-    def _device_labels(self, keys) -> dict[str, str]:
-        """Friendly labels that say whether a device is WiFi or Bluetooth."""
+    # ----------------------------------------------------- telling devices apart
+
+    def _context(self) -> tuple[dict, dict]:
+        """(Bluetooth devices heard now by address, their manufacturers)."""
         coordinator = self._coordinator
-        labels = {}
-        for key in keys:
-            dev = coordinator.devices.get(key) if coordinator else None
-            name = (dev or {}).get("hostname") or "Unknown"
-            if is_ble_key(key):
-                labels[key] = f"Bluetooth - {name} - {ble_address(key)}"
-                continue
-            ip = (dev or {}).get("ip")
-            labels[key] = f"WiFi - {name} - {ip} - {key}" if ip else f"WiFi - {name} - {key}"
-        return labels
+        if not coordinator:
+            return {}, {}
+        ble = {item["address"]: item for item in coordinator.discovered_bluetooth()}
+        return ble, bluetooth_manufacturers(self.hass)
+
+    def _label(self, key: str, ctx: tuple[dict, dict]) -> str:
+        """One line that helps you tell devices apart.
+
+        Your own name first, then what the network or Bluetooth calls it. WiFi lines
+        show the IP and MAC (and 'random MAC' for a phone's private address). Bluetooth
+        lines show the maker and signal strength: hold the device close and the
+        strongest signal is usually it.
+        """
+        ble, mans = ctx
+        coordinator = self._coordinator
+        names = self.config_entry.options.get(CONF_NAMES) or {}
+        dev = coordinator.devices.get(key) if coordinator else None
+        if is_ble_key(key):
+            address = ble_address(key)
+            item = ble.get(address) or {}
+            name = names.get(key) or (dev or {}).get("hostname") or item.get("name") or "Unknown"
+            bits = []
+            if mans.get(address):
+                bits.append(mans[address])
+            if item.get("rssi") is not None:
+                bits.append(f"{item['rssi']} dBm")
+            extra = f" ({', '.join(bits)})" if bits else ""
+            return f"Bluetooth - {name} - {address}{extra}"
+        name = names.get(key) or (dev or {}).get("hostname") or "Unknown"
+        ip = (dev or {}).get("ip")
+        label = " - ".join(["WiFi", name] + ([ip] if ip else []) + [key])
+        return label + (" (random MAC)" if is_random_mac(key) else "")
+
+    def _all_choices(self, ctx: tuple[dict, dict]) -> dict[str, str]:
+        """Every device we know of: tracked ones, WiFi devices found, Bluetooth devices heard."""
+        coordinator = self._coordinator
+        keys = list(dict.fromkeys(self.config_entry.options.get(CONF_TRACKED, [])))
+        if coordinator:
+            keys += [k for k in coordinator.devices if not is_ble_key(k) and k not in keys]
+        keys += [ble_key(a) for a in ctx[0] if ble_key(a) not in keys]
+        return {key: self._label(key, ctx) for key in keys}
 
     # ------------------------------------------------------------------- menu
 
     async def async_step_init(self, user_input=None):
-        if not self.config_entry.options.get(CONF_TRACKED):
-            # Nothing to link yet, go straight to picking devices.
-            return await self.async_step_settings()
-        return self.async_show_menu(
-            step_id="init", menu_options=["settings", "link"]
-        )
+        menu = ["settings", "name"]
+        if self.config_entry.options.get(CONF_TRACKED):
+            menu.append("link")
+        return self.async_show_menu(step_id="init", menu_options=menu)
 
     # --------------------------------------------------- devices + scan settings
 
     async def async_step_settings(self, user_input=None):
         errors = {}
         opts = self.config_entry.options
-        coordinator = self._coordinator
 
         if user_input is not None:
             try:
@@ -154,24 +189,13 @@ class WifiPresenceOptionsFlow(OptionsFlow):
                         CONF_CONSIDER_HOME: user_input[CONF_CONSIDER_HOME],
                         CONF_TRACKED: sorted(tracked),
                         CONF_LINKS: links,
+                        # Names are kept even for devices you stop tracking.
+                        CONF_NAMES: dict(opts.get(CONF_NAMES) or {}),
                     }
                 )
 
         saved = list(opts.get(CONF_TRACKED, []))
-        choices = dict(self._device_labels(saved))
-        if coordinator:
-            # Every WiFi device the scan has found...
-            wifi_keys = [k for k in coordinator.devices if not is_ble_key(k)]
-            for key, label in self._device_labels(wifi_keys).items():
-                choices.setdefault(key, label)
-            # ...and every Bluetooth device that can be tracked by address.
-            for item in coordinator.discovered_bluetooth():
-                key = ble_key(item["address"])
-                rssi = f" ({item['rssi']} dBm)" if item["rssi"] is not None else ""
-                choices.setdefault(
-                    key,
-                    f"Bluetooth - {item['name'] or 'Unknown'} - {item['address']}{rssi}",
-                )
+        choices = self._all_choices(self._context())
 
         schema = vol.Schema(
             {
@@ -193,6 +217,58 @@ class WifiPresenceOptionsFlow(OptionsFlow):
         )
         return self.async_show_form(step_id="settings", data_schema=schema, errors=errors)
 
+    # ------------------------------------------------------- name a device
+
+    async def async_step_name(self, user_input=None):
+        """Pick a device to give your own name (or to change or clear its name)."""
+        choices = self._all_choices(self._context())
+        if not choices:
+            return self.async_abort(reason="no_devices")
+        if user_input is not None:
+            self._name_key = user_input[CONF_DEVICE]
+            return await self.async_step_name_details()
+
+        names = self.config_entry.options.get(CONF_NAMES) or {}
+        # Devices without a name of yours come first.
+        ordered = sorted(choices, key=lambda k: bool(names.get(k)))
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_DEVICE): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[{"value": k, "label": choices[k]} for k in ordered],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                )
+            }
+        )
+        return self.async_show_form(step_id="name", data_schema=schema)
+
+    async def async_step_name_details(self, user_input=None):
+        opts = self.config_entry.options
+        key = self._name_key
+        names = dict(opts.get(CONF_NAMES) or {})
+
+        if user_input is not None:
+            name = (user_input.get(CONF_NAME) or "").strip()[:60]
+            if name:
+                names[key] = name
+            else:
+                names.pop(key, None)
+            return self.async_create_entry(data={**opts, CONF_NAMES: names})
+
+        schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_NAME, description={"suggested_value": names.get(key, "")}
+                ): str
+            }
+        )
+        return self.async_show_form(
+            step_id="name_details",
+            data_schema=schema,
+            description_placeholders={"device": self._label(key, self._context())},
+        )
+
     # ------------------------------------------- Bluetooth / linked entity links
 
     async def async_step_link(self, user_input=None):
@@ -202,12 +278,12 @@ class WifiPresenceOptionsFlow(OptionsFlow):
             self._link_key = user_input[CONF_DEVICE]
             return await self.async_step_link_details()
 
-        labels = self._device_labels(tracked)
+        ctx = self._context()
         schema = vol.Schema(
             {
                 vol.Required(CONF_DEVICE): selector.SelectSelector(
                     selector.SelectSelectorConfig(
-                        options=[{"value": k, "label": labels[k]} for k in tracked],
+                        options=[{"value": k, "label": self._label(k, ctx)} for k in tracked],
                         mode=selector.SelectSelectorMode.DROPDOWN,
                     )
                 )
@@ -247,16 +323,14 @@ class WifiPresenceOptionsFlow(OptionsFlow):
                 return self.async_create_entry(data={**opts, CONF_LINKS: links})
 
         # Bluetooth devices heard right now, so the address can be picked.
-        coordinator = self._coordinator
+        ctx = self._context()
+        ble, mans = ctx
+        names = opts.get(CONF_NAMES) or {}
         ble_options = []
-        if coordinator:
-            ble_options = [
-                {
-                    "value": d["address"],
-                    "label": f"{d['name'] or 'Unknown'} - {d['address']}",
-                }
-                for d in coordinator.discovered_bluetooth()
-            ]
+        for address, item in ble.items():
+            name = names.get(ble_key(address)) or item["name"] or "Unknown"
+            maker = f" ({mans[address]})" if mans.get(address) else ""
+            ble_options.append({"value": address, "label": f"{name}{maker} - {address}"})
         saved_address = current.get(CONF_BLUETOOTH)
         if saved_address and all(o["value"] != saved_address for o in ble_options):
             ble_options.append({"value": saved_address, "label": saved_address})
@@ -295,5 +369,5 @@ class WifiPresenceOptionsFlow(OptionsFlow):
             step_id="link_details",
             data_schema=schema,
             errors=errors,
-            description_placeholders={"device": self._device_labels([key])[key]},
+            description_placeholders={"device": self._label(key, ctx)},
         )

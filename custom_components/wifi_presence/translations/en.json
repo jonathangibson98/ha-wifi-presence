@@ -25,12 +25,13 @@
         "description": "What do you want to change?",
         "menu_options": {
           "settings": "Devices and scan settings",
+          "name": "Name a device (to tell devices apart)",
           "link": "Add Bluetooth or other signals to a device"
         }
       },
       "settings": {
         "title": "WiFi Presence devices",
-        "description": "Pick the devices to track. WiFi devices and Bluetooth devices are both listed. A device that only shows up over Bluetooth works fine on its own. To use WiFi and Bluetooth together for one device, track its WiFi entry, save, then use 'Add Bluetooth or other signals to a device'. Don't see one? Wait a minute and reopen this, or add it by address below.",
+        "description": "Pick the devices to track. WiFi devices and Bluetooth devices are both listed, with the names you gave them. A device that only shows up over Bluetooth works fine on its own. To use WiFi and Bluetooth together for one device, track its WiFi entry, save, then use 'Add Bluetooth or other signals to a device'. Can't tell which is which? Use 'Name a device' from the menu. Don't see one? Wait a minute and reopen this, or add it by address below.",
         "data": {
           "tracked": "Devices to track (WiFi and Bluetooth)",
           "manual_macs": "Add WiFi device by MAC (optional, comma separated)",
@@ -38,6 +39,20 @@
           "subnet": "Network to scan",
           "scan_interval": "Scan every (seconds)",
           "consider_home": "Stay 'home' after last seen (seconds)"
+        }
+      },
+      "name": {
+        "title": "Name a device",
+        "description": "Pick a device to give it your own name. Devices without a name of yours are listed first.\n\nTips for telling them apart:\n- Bluetooth: hold the device right next to your Bluetooth adapter or proxy. The strongest signal (closest to 0 dBm) is usually it. The maker in brackets helps too.\n- WiFi: 'random MAC' means a phone or tablet using a private address. Check the IP in your router's device list, or turn the device's WiFi off and on and reopen this to see which one changed.",
+        "data": {
+          "device": "Device"
+        }
+      },
+      "name_details": {
+        "title": "Name this device",
+        "description": "{device}\n\nType a name like 'Kitchen tablet' or 'Mom's watch'. It becomes the tracker's name and shows in every list. Leave it empty to clear the name.",
+        "data": {
+          "name": "Name"
         }
       },
       "link": {
@@ -62,6 +77,9 @@
       "invalid_mac": "A MAC looks like aa:bb:cc:dd:ee:ff",
       "invalid_bluetooth": "A Bluetooth address looks like AA:BB:CC:DD:EE:FF",
       "invalid_irk": "An IRK is 32 hex characters, or the base64 form that ends in ="
+    },
+    "abort": {
+      "no_devices": "No devices found yet. Wait a minute for the first scan, then try again."
     }
   }
 }

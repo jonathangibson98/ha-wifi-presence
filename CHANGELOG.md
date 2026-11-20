@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.0
+- **Name your devices.** New **Name a device** option in the menu. Pick any device (WiFi or Bluetooth, tracked or not) and give it your own name, like "Kitchen tablet". The name becomes the tracker's name and shows in every list, so you stop guessing which MAC is which. Leave the name empty to clear it. Names are kept even if you stop tracking a device.
+- **Easier to tell devices apart.** Every list now shows more:
+  - WiFi: name, IP and MAC, plus "random MAC" for a phone or tablet using a private address.
+  - Bluetooth: name, address, the maker (like Apple or Samsung) when Bluetooth says, and signal strength. Hold the device next to your adapter or proxy and the strongest signal is usually it.
+- Devices without a name of yours are listed first when you pick one to name.
+
 ## 1.3.0
 - **WiFi, Bluetooth, or both, per device.** The device picker now lists every WiFi device the scan found AND every Bluetooth device Home Assistant can hear. Pick any of them. A device that only shows up over Bluetooth (a watch, tag, earbuds case, fitness band) is tracked on its own with no WiFi needed. A WiFi-only device works as before.
 - **Both together.** Track a device's WiFi entry, then use "Add Bluetooth or other signals to a device" to add its Bluetooth. The Bluetooth device is now picked from a list of what Home Assistant hears instead of typed in (typing still works).

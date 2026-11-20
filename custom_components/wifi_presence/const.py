@@ -9,6 +9,9 @@ CONF_TRACKED = "tracked"
 CONF_MANUAL_MACS = "manual_macs"
 CONF_MANUAL_BLE = "manual_bluetooth"
 
+# Your own names for devices, by key: {key: "Kitchen tablet"}
+CONF_NAMES = "names"
+
 # Extra signals, stored per tracked device: {key: {bluetooth, irk, entities}}
 CONF_LINKS = "links"
 CONF_BLUETOOTH = "bluetooth"

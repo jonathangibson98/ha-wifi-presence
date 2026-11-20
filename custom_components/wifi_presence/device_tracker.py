@@ -7,7 +7,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import CONF_TRACKED, DOMAIN, SOURCE_BLUETOOTH, SOURCE_WIFI
+from .const import CONF_NAMES, CONF_TRACKED, DOMAIN, SOURCE_BLUETOOTH, SOURCE_WIFI
 from .coordinator import WifiScanCoordinator
 from .helpers import ble_address, is_ble_key
 
@@ -53,6 +53,11 @@ class WifiPresenceDevice(CoordinatorEntity[WifiScanCoordinator], ScannerEntity):
 
     @property
     def name(self) -> str:
+        # The name you gave the device wins, then the name the network or
+        # Bluetooth reports.
+        names = self.coordinator.config_entry.options.get(CONF_NAMES) or {}
+        if names.get(self._key):
+            return names[self._key]
         dev = self._device
         if dev and dev.get("hostname"):
             return dev["hostname"]
