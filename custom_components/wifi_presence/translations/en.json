@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "WiFi Presence",
-        "description": "Scans your WiFi network to see which devices are connected. Google WiFi uses 192.168.86.0/24 by default.",
+        "description": "Scans your WiFi network and listens for Bluetooth to see which devices are around. Google WiFi uses 192.168.86.0/24 by default.",
         "data": {
           "subnet": "Network to scan",
           "scan_interval": "Scan every (seconds)",
@@ -30,10 +30,11 @@
       },
       "settings": {
         "title": "WiFi Presence devices",
-        "description": "Pick which devices to track. Don't see one? Connect it to WiFi, wait a minute, and reopen this. Or add its MAC below.",
+        "description": "Pick the devices to track. WiFi devices and Bluetooth devices are both listed. A device that only shows up over Bluetooth works fine on its own. To use WiFi and Bluetooth together for one device, track its WiFi entry, save, then use 'Add Bluetooth or other signals to a device'. Don't see one? Wait a minute and reopen this, or add it by address below.",
         "data": {
-          "tracked": "Devices to track",
-          "manual_macs": "Add by MAC (optional, comma separated)",
+          "tracked": "Devices to track (WiFi and Bluetooth)",
+          "manual_macs": "Add WiFi device by MAC (optional, comma separated)",
+          "manual_bluetooth": "Add Bluetooth device by address (optional, comma separated)",
           "subnet": "Network to scan",
           "scan_interval": "Scan every (seconds)",
           "consider_home": "Stay 'home' after last seen (seconds)"
@@ -50,7 +51,7 @@
         "title": "Extra signals",
         "description": "{device}\n\nThe device counts as home if ANY signal sees it. Leave a box empty to skip it.",
         "data": {
-          "bluetooth": "Bluetooth address (fixed address, like a watch or tag)",
+          "bluetooth": "Bluetooth device (pick one, or type an address)",
           "irk": "Bluetooth IRK (for phones that rotate their address)",
           "entities": "Other trackers or sensors (like the Companion app tracker)"
         }

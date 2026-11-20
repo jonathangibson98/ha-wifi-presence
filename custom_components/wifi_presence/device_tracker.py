@@ -1,7 +1,7 @@
 """Device tracker entities for WiFi Presence."""
 from __future__ import annotations
 
-from homeassistant.components.device_tracker import ScannerEntity
+from homeassistant.components.device_tracker import ScannerEntity, SourceType
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -9,6 +9,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CONF_TRACKED, DOMAIN, SOURCE_BLUETOOTH, SOURCE_WIFI
 from .coordinator import WifiScanCoordinator
+from .helpers import ble_address, is_ble_key
 
 
 async def async_setup_entry(
@@ -16,12 +17,12 @@ async def async_setup_entry(
 ) -> None:
     coordinator: WifiScanCoordinator = entry.runtime_data
     async_add_entities(
-        WifiPresenceDevice(coordinator, mac) for mac in entry.options.get(CONF_TRACKED, [])
+        WifiPresenceDevice(coordinator, key) for key in entry.options.get(CONF_TRACKED, [])
     )
 
 
 class WifiPresenceDevice(CoordinatorEntity[WifiScanCoordinator], ScannerEntity):
-    """One tracked device.
+    """One tracked device: WiFi only, Bluetooth only, or both.
 
     Home when ANY signal has seen it recently (WiFi, Bluetooth, or a linked
     entity). Not home only when all of them have gone quiet.
@@ -32,10 +33,13 @@ class WifiPresenceDevice(CoordinatorEntity[WifiScanCoordinator], ScannerEntity):
         {"last_seen", "wifi_last_seen", "bluetooth_last_seen"}
     )
 
-    def __init__(self, coordinator: WifiScanCoordinator, mac: str) -> None:
+    def __init__(self, coordinator: WifiScanCoordinator, key: str) -> None:
         super().__init__(coordinator)
-        self._mac = mac
-        self._attr_unique_id = f"{DOMAIN}_{mac}"
+        self._key = key
+        self._ble_only = is_ble_key(key)
+        # WiFi devices keep their old unique id (wifi_presence_<mac>), so nothing
+        # changes for trackers that already exist.
+        self._attr_unique_id = f"{DOMAIN}_{key}"
 
     @property
     def available(self) -> bool:
@@ -45,22 +49,28 @@ class WifiPresenceDevice(CoordinatorEntity[WifiScanCoordinator], ScannerEntity):
 
     @property
     def _device(self) -> dict | None:
-        return self.coordinator.devices.get(self._mac)
+        return self.coordinator.devices.get(self._key)
 
     @property
     def name(self) -> str:
         dev = self._device
         if dev and dev.get("hostname"):
             return dev["hostname"]
-        return f"WiFi {self._mac}"
+        if self._ble_only:
+            return f"Bluetooth {ble_address(self._key)}"
+        return f"WiFi {self._key}"
+
+    @property
+    def source_type(self) -> SourceType:
+        return SourceType.BLUETOOTH if self._ble_only else SourceType.ROUTER
 
     @property
     def is_connected(self) -> bool:
-        return self.coordinator.status(self._mac)["connected"]
+        return self.coordinator.status(self._key)["connected"]
 
     @property
     def mac_address(self) -> str:
-        return self._mac
+        return ble_address(self._key).lower() if self._ble_only else self._key
 
     @property
     def ip_address(self) -> str | None:
@@ -74,7 +84,7 @@ class WifiPresenceDevice(CoordinatorEntity[WifiScanCoordinator], ScannerEntity):
 
     @property
     def extra_state_attributes(self) -> dict:
-        status = self.coordinator.status(self._mac)
+        status = self.coordinator.status(self._key)
         attrs: dict = {"connected_via": status["sources"]}
         if status["last_seen"] is not None:
             attrs["last_seen"] = status["last_seen"].isoformat()

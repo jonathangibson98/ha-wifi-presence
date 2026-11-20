@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.0
+- **WiFi, Bluetooth, or both, per device.** The device picker now lists every WiFi device the scan found AND every Bluetooth device Home Assistant can hear. Pick any of them. A device that only shows up over Bluetooth (a watch, tag, earbuds case, fitness band) is tracked on its own with no WiFi needed. A WiFi-only device works as before.
+- **Both together.** Track a device's WiFi entry, then use "Add Bluetooth or other signals to a device" to add its Bluetooth. The Bluetooth device is now picked from a list of what Home Assistant hears instead of typed in (typing still works).
+- Bluetooth-only trackers take their name from the device's Bluetooth name and report `source_type: bluetooth`.
+- You can also add a Bluetooth device by address in the options, even if it isn't in range right now.
+- Rotating phone addresses are left out of the Bluetooth list (they can't be tracked by address). Use the phone's WiFi entry with its IRK instead.
+- Existing WiFi trackers keep their entity IDs and settings.
+
 ## 1.2.0
 - **Bluetooth.** Each tracked device can now be linked to a Bluetooth address (watches, tags, anything with a fixed address) or an IRK (phones that rotate their Bluetooth address). Works with the Bluetooth adapter on your Home Assistant machine and with ESPHome or Shelly Bluetooth proxies.
 - **Other signals.** Each tracked device can also be linked to other trackers or binary sensors, like the Companion app's `device_tracker`. If one of them says home, the device is home.

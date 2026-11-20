@@ -1,9 +1,11 @@
-"""Small parsing helpers for Bluetooth addresses and IRKs."""
+"""Small parsing helpers for Bluetooth addresses, keys and IRKs."""
 from __future__ import annotations
 
 import base64
 import binascii
 import re
+
+from .const import BLE_KEY_PREFIX
 
 _BLE_RE = re.compile(r"^([0-9A-F]{2}:){5}[0-9A-F]{2}$")
 
@@ -12,6 +14,20 @@ def normalize_ble_address(raw: str) -> str | None:
     """Return an upper case AA:BB:CC:DD:EE:FF address, or None if it isn't one."""
     address = raw.strip().upper().replace("-", ":")
     return address if _BLE_RE.match(address) else None
+
+
+def ble_key(address: str) -> str:
+    """Tracked-device key for a Bluetooth-only device."""
+    return BLE_KEY_PREFIX + address.lower()
+
+
+def is_ble_key(key: str) -> bool:
+    return key.startswith(BLE_KEY_PREFIX)
+
+
+def ble_address(key: str) -> str:
+    """AA:BB:CC:DD:EE:FF address from a Bluetooth-only key."""
+    return key[len(BLE_KEY_PREFIX):].upper()
 
 
 def parse_irk(raw: str) -> bytes | None:

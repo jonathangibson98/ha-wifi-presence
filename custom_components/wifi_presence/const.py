@@ -7,8 +7,9 @@ CONF_SCAN_INTERVAL = "scan_interval"
 CONF_CONSIDER_HOME = "consider_home"
 CONF_TRACKED = "tracked"
 CONF_MANUAL_MACS = "manual_macs"
+CONF_MANUAL_BLE = "manual_bluetooth"
 
-# Extra signals, stored per tracked device: {mac: {bluetooth, irk, entities}}
+# Extra signals, stored per tracked device: {key: {bluetooth, irk, entities}}
 CONF_LINKS = "links"
 CONF_BLUETOOTH = "bluetooth"
 CONF_IRK = "irk"
@@ -17,6 +18,12 @@ CONF_ENTITIES = "entities"
 DEFAULT_SUBNET = "192.168.86.0/24"  # Google WiFi default
 DEFAULT_SCAN_INTERVAL = 30
 DEFAULT_CONSIDER_HOME = 600  # iPhones can go quiet for several minutes
+
+# A tracked device is identified by a "key":
+#   - a WiFi MAC like aa:bb:cc:dd:ee:ff (WiFi device, can also be linked to Bluetooth)
+#   - "ble:aa:bb:cc:dd:ee:ff" (Bluetooth-only device)
+BLE_KEY_PREFIX = "ble:"
+MAX_BLE_CHOICES = 150
 
 # The signals that can say "this device is home".
 SOURCE_WIFI = "wifi"
