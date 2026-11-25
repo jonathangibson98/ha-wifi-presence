@@ -4,6 +4,7 @@ from __future__ import annotations
 from homeassistant.components.device_tracker import ScannerEntity, SourceType
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -16,9 +17,19 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     coordinator: WifiScanCoordinator = entry.runtime_data
+    _remove_orphans(hass, entry)
     async_add_entities(
         WifiPresenceDevice(coordinator, key) for key in entry.options.get(CONF_TRACKED, [])
     )
+
+
+def _remove_orphans(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Delete tracker entities left behind by devices you stopped tracking."""
+    wanted = {f"{DOMAIN}_{key}".lower() for key in entry.options.get(CONF_TRACKED, [])}
+    registry = er.async_get(hass)
+    for item in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if item.domain == "device_tracker" and item.platform == DOMAIN and (item.unique_id or "").lower() not in wanted:
+            registry.async_remove(item.entity_id)
 
 
 class WifiPresenceDevice(CoordinatorEntity[WifiScanCoordinator], ScannerEntity):

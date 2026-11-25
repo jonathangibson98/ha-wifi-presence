@@ -78,6 +78,10 @@ Not listed? Wait a minute and reopen Configure (WiFi devices need to be on the n
 
 Phones that rotate their Bluetooth address aren't in the Bluetooth list, because an address that keeps changing can't be tracked. Track the phone's WiFi entry and give it an IRK (below).
 
+### Remove devices you don't use
+
+Click **Configure** → **Remove devices you don't use**, tick the ones you want gone and submit. They stop being tracked and their entities are deleted from Home Assistant, together with their names and extra signals. Unticking a device in **Devices and scan settings** does the same. Anything still on your network can be added back later.
+
 ### Use WiFi and Bluetooth together for one device (optional)
 
 Track the device's WiFi entry, save, then click **Configure** → **Add Bluetooth or other signals to a device**, pick the device, and fill in any of these:

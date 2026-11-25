@@ -10,6 +10,7 @@ from homeassistant.config_entries import ConfigFlow, OptionsFlow
 from homeassistant.const import CONF_NAME
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
 
 from .const import (
@@ -21,6 +22,7 @@ from .const import (
     CONF_MANUAL_BLE,
     CONF_MANUAL_MACS,
     CONF_NAMES,
+    CONF_REMOVE,
     CONF_SCAN_INTERVAL,
     CONF_SUBNET,
     CONF_TRACKED,
@@ -142,7 +144,7 @@ class WifiPresenceOptionsFlow(OptionsFlow):
     async def async_step_init(self, user_input=None):
         menu = ["settings", "name"]
         if self.config_entry.options.get(CONF_TRACKED):
-            menu.append("link")
+            menu += ["link", "remove"]
         return self.async_show_menu(step_id="init", menu_options=menu)
 
     # --------------------------------------------------- devices + scan settings
@@ -176,6 +178,7 @@ class WifiPresenceOptionsFlow(OptionsFlow):
                     errors[CONF_MANUAL_BLE] = "invalid_bluetooth"
 
             if not errors:
+                self._forget_entities(set(opts.get(CONF_TRACKED, [])) - tracked)
                 # Keep the extra signals, but drop them for devices no longer tracked.
                 links = {
                     key: link
@@ -216,6 +219,53 @@ class WifiPresenceOptionsFlow(OptionsFlow):
             }
         )
         return self.async_show_form(step_id="settings", data_schema=schema, errors=errors)
+
+    # ------------------------------------------------------ remove devices
+
+    def _forget_entities(self, keys) -> None:
+        """Delete the tracker entities of devices that are no longer tracked.
+
+        Without this, an untracked device leaves a dead entity behind in Home Assistant.
+        """
+        registry = er.async_get(self.hass)
+        for key in keys:
+            entity_id = registry.async_get_entity_id("device_tracker", DOMAIN, f"{DOMAIN}_{key}")
+            if entity_id:
+                registry.async_remove(entity_id)
+
+    async def async_step_remove(self, user_input=None):
+        """Pick tracked devices you don't use any more and remove them for good."""
+        opts = self.config_entry.options
+        tracked = list(dict.fromkeys(opts.get(CONF_TRACKED, [])))
+        if not tracked:
+            return self.async_abort(reason="nothing_to_remove")
+
+        if user_input is not None:
+            gone = {k for k in user_input.get(CONF_REMOVE, []) if k in tracked}
+            keep = [k for k in tracked if k not in gone]
+            self._forget_entities(gone)
+            return self.async_create_entry(
+                data={
+                    **opts,
+                    CONF_TRACKED: keep,
+                    CONF_LINKS: {k: v for k, v in (opts.get(CONF_LINKS) or {}).items() if k in keep},
+                    CONF_NAMES: {k: v for k, v in (opts.get(CONF_NAMES) or {}).items() if k in keep},
+                }
+            )
+
+        ctx = self._context()
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_REMOVE): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[{"value": k, "label": self._label(k, ctx)} for k in tracked],
+                        multiple=True,
+                        mode=selector.SelectSelectorMode.LIST,
+                    )
+                )
+            }
+        )
+        return self.async_show_form(step_id="remove", data_schema=schema)
 
     # ------------------------------------------------------- name a device
 
