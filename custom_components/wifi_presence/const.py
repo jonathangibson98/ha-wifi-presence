@@ -8,6 +8,7 @@ CONF_CONSIDER_HOME = "consider_home"
 CONF_TRACKED = "tracked"
 CONF_MANUAL_MACS = "manual_macs"
 CONF_MANUAL_BLE = "manual_bluetooth"
+CONF_REMOVE = "remove"
 
 # Your own names for devices, by key: {key: "Kitchen tablet"}
 CONF_NAMES = "names"

@@ -26,7 +26,8 @@
         "menu_options": {
           "settings": "Devices and scan settings",
           "name": "Name a device (to tell devices apart)",
-          "link": "Add Bluetooth or other signals to a device"
+          "link": "Add Bluetooth or other signals to a device",
+          "remove": "Remove devices you don't use"
         }
       },
       "settings": {
@@ -70,6 +71,13 @@
           "irk": "Bluetooth IRK (for phones that rotate their address)",
           "entities": "Other trackers or sensors (like the Companion app tracker)"
         }
+      },
+      "remove": {
+        "title": "Remove devices",
+        "description": "Tick the devices you don't use. They stop being tracked and their tracker entities are deleted from Home Assistant. A device that is still on your network can be added again later from 'Devices and scan settings'.",
+        "data": {
+          "remove": "Devices to remove"
+        }
       }
     },
     "error": {
@@ -79,7 +87,8 @@
       "invalid_irk": "An IRK is 32 hex characters, or the base64 form that ends in ="
     },
     "abort": {
-      "no_devices": "No devices found yet. Wait a minute for the first scan, then try again."
+      "no_devices": "No devices found yet. Wait a minute for the first scan, then try again.",
+      "nothing_to_remove": "No devices are being tracked yet."
     }
   }
 }

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.0
+- **Remove devices you don't use.** New **Remove devices you don't use** option in the menu. Tick the ones you want gone and they stop being tracked, and their tracker entities are deleted from Home Assistant, along with their names and extra signals.
+- **Unticking a device in "Devices and scan settings" now deletes its entity too.** Before, the dead entity stayed behind in Home Assistant forever.
+- **Old leftovers are cleaned up automatically.** When the integration starts it deletes tracker entities of devices you are no longer tracking. A device still on your network can always be added back later.
+
 ## 1.4.0
 - **Name your devices.** New **Name a device** option in the menu. Pick any device (WiFi or Bluetooth, tracked or not) and give it your own name, like "Kitchen tablet". The name becomes the tracker's name and shows in every list, so you stop guessing which MAC is which. Leave the name empty to clear it. Names are kept even if you stop tracking a device.
 - **Easier to tell devices apart.** Every list now shows more:
